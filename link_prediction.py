@@ -1,11 +1,9 @@
 """
 Link Prediction Task: predicting the existence of an edge between two arbitrary nodes in a graph.
 ===========================================
--  Model: DGL-provided graphsage and gat encoder (and many more);
--  Loss: cross entropy. You can modify the loss as you want.
--  Metric: AUC.
-(Time estimate: 28 minutes)
-
+-  Model: DGL-based graphsage and gat encoder (and many more)
+-  Loss: cross entropy. You can modify the loss as you want
+-  Metric: AUC
 """
 
 import dgl
@@ -13,77 +11,72 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import itertools
+import time
 import numpy as np
 import scipy.sparse as sp
+from sklearn.metrics import roc_auc_score
 import dgl.data
-from dgl.nn import SAGEConv # Define a GraphSAGE model
+from models import GraphSAGE
 
-######################################################################
-# build a two-layer GraphSAGE model
-class GraphSAGE(nn.Module):
-    def __init__(self, in_feats, h_feats):
-        super(GraphSAGE, self).__init__()
-        self.conv1 = SAGEConv(in_feats, h_feats, 'mean')
-        self.conv2 = SAGEConv(h_feats, h_feats, 'mean')
+"""
+Construct dataset for link prediction
+"""
+def construct_data(data_type='cora'):
+    if data_type == 'cora':
+        dataset = dgl.data.CoraGraphDataset()
+    else:
+        dataset = dgl.data.CiteseerGraphDataset()
     
-    def forward(self, g, in_feat):
-        h = self.conv1(g, in_feat)
-        h = F.relu(h)
-        h = self.conv2(g, h)
-        return h
+    graph = dataset[0]
+    features = graph.ndata['feat']
 
-######################################################################
-# Load dataset
-dataset = dgl.data.CoraGraphDataset()
-g = dataset[0]
+    # Split the edge set for training and testing sets:
+    # -  Randomly picks 10% of the edges in test set as positive examples
+    # -  Leave the rest for the training set
+    # -  Sample the same number of edges for negative examples in both sets
+    u, v = graph.edges()
 
-# Split the edge set for training and testing sets:
-# -  Randomly picks 10% of the edges in test set as positive examples
-# -  Leave the rest for the training set
-# -  Sample the same number of edges for negative examples in both sets
-u, v = g.edges()
+    eids = np.arange(graph.number_of_edges())
+    eids = np.random.permutation(eids)
+    test_size = int(len(eids) * 0.1)
+    train_size = graph.number_of_edges() - test_size
+    test_pos_u, test_pos_v = u[eids[:test_size]], v[eids[:test_size]]
+    train_pos_u, train_pos_v = u[eids[test_size:]], v[eids[test_size:]]
 
-eids = np.arange(g.number_of_edges())
-eids = np.random.permutation(eids)
-test_size = int(len(eids) * 0.1)
-train_size = g.number_of_edges() - test_size
-test_pos_u, test_pos_v = u[eids[:test_size]], v[eids[:test_size]]
-train_pos_u, train_pos_v = u[eids[test_size:]], v[eids[test_size:]]
+    # Find all negative edges and split them for training and testing
+    adj = sp.coo_matrix((np.ones(len(u)), (u.numpy(), v.numpy())))
+    adj_neg = 1 - adj.todense() - np.eye(graph.number_of_nodes())
+    neg_u, neg_v = np.where(adj_neg != 0)
 
-# Find all negative edges and split them for training and testing
-adj = sp.coo_matrix((np.ones(len(u)), (u.numpy(), v.numpy())))
-adj_neg = 1 - adj.todense() - np.eye(g.number_of_nodes())
-neg_u, neg_v = np.where(adj_neg != 0)
+    neg_eids = np.random.choice(len(neg_u), graph.number_of_edges() // 2)
+    test_neg_u, test_neg_v = neg_u[neg_eids[:test_size]], neg_v[neg_eids[:test_size]]
+    train_neg_u, train_neg_v = neg_u[neg_eids[test_size:]], neg_v[neg_eids[test_size:]]
 
-neg_eids = np.random.choice(len(neg_u), g.number_of_edges() // 2)
-test_neg_u, test_neg_v = neg_u[neg_eids[:test_size]], neg_v[neg_eids[:test_size]]
-train_neg_u, train_neg_v = neg_u[neg_eids[test_size:]], neg_v[neg_eids[test_size:]]
+    # Remove the edges in the test set from the original graph:
+    # -  A subgraph will be created from the original graph by ``dgl.remove_edges``
+    train_graph = dgl.remove_edges(graph, eids[:test_size])
 
+    # Construct positive graph and negative graph
+    # -  Positive graph consists of all the positive examples as edges
+    # -  Negative graph consists of all the negative examples
+    # -  Both contain the same set of nodes as the original graph
+    train_pos_g = dgl.graph((train_pos_u, train_pos_v), num_nodes=graph.number_of_nodes())
+    train_neg_g = dgl.graph((train_neg_u, train_neg_v), num_nodes=graph.number_of_nodes())
 
-######################################################################
-# Remove the edges in the test set from the original graph:
-# -  A subgraph will be created from the original graph by ``dgl.remove_edges``
-train_g = dgl.remove_edges(g, eids[:test_size])
+    test_pos_g = dgl.graph((test_pos_u, test_pos_v), num_nodes=graph.number_of_nodes())
+    test_neg_g = dgl.graph((test_neg_u, test_neg_v), num_nodes=graph.number_of_nodes())
 
-
-######################################################################
-# Construct positive graph and negative graph
-# -  Positive graph consists of all the positive examples as edges
-# -  Negative graph consists of all the negative examples
-# -  Both contain the same set of nodes as the original graph
-train_pos_g = dgl.graph((train_pos_u, train_pos_v), num_nodes=g.number_of_nodes())
-train_neg_g = dgl.graph((train_neg_u, train_neg_v), num_nodes=g.number_of_nodes())
-
-test_pos_g = dgl.graph((test_pos_u, test_pos_v), num_nodes=g.number_of_nodes())
-test_neg_g = dgl.graph((test_neg_u, test_neg_v), num_nodes=g.number_of_nodes())
+    return train_graph, features, train_pos_g, train_neg_g, test_pos_g, test_neg_g
 
 
-######################################################################
-# Dot product to compute the score of link 
-# The benefit of treating the pairs of nodes as a graph is that the score
-# on edge can be easily computed via the ``DGLGraph.apply_edges`` method
+"""
+Dot product to compute the score of link 
+The benefit of treating the pairs of nodes as a graph is that the score
+on edge can be easily computed via the ``DGLGraph.apply_edges`` method
+"""
 import dgl.function as fn
 
+# Dot product to predict the score of link
 class DotPredictor(nn.Module):
     def forward(self, g, h):
         with g.local_scope():
@@ -94,9 +87,7 @@ class DotPredictor(nn.Module):
             # u_dot_v returns a 1-element vector for each edge so you need to squeeze it.
             return g.edata['score'][:, 0]
 
-
-######################################################################
-# MLP to compute predict the score of link
+# MLP to predict the score of link
 class MLPPredictor(nn.Module):
     def __init__(self, h_feats):
         super().__init__()
@@ -130,14 +121,35 @@ class MLPPredictor(nn.Module):
             return g.edata['score']
 
 
-######################################################################
-# Training procedure
-model = GraphSAGE(train_g.ndata['feat'].shape[1], 16)
-# You can replace DotPredictor with MLPPredictor.
-#pred = MLPPredictor(16)
-pred = DotPredictor()
 
-optimizer = torch.optim.Adam(itertools.chain(model.parameters(), pred.parameters()), lr=0.01)
+######################################################################
+# Set dataset, model and predictor type
+model_type = 'sage' # sage/gat
+data_type = 'cora'  # cora/citeseer
+predictor_type = 'dot' # dot/mlp
+
+# Load and construct data for link prediction task
+graph, features, train_pos_g, train_neg_g, test_pos_g, test_neg_g = construct_data(data_type)
+n_features = features.shape[1]
+
+# Initialize embedding model
+if model_type == 'sage':
+    model = GraphSAGE(graph,
+                      in_dim=n_features, 
+                      hidden_dim=64, 
+                      out_dim=16)
+else:
+    model = GAT(graph,
+                in_dim=n_features,
+                hidden_dim=8,
+                out_dim=16,
+                num_heads=8)
+
+# Initialize link predictor
+# You can replace DotPredictor with MLPPredictor.
+pred = DotPredictor() # or MLPPredictor(16)
+
+optimizer = torch.optim.Adam(itertools.chain(model.parameters(), pred.parameters()), lr=1e-3)
 
 ######################################################################
 # Loss: cross entropy. You can modify here for debiasing.
@@ -152,28 +164,40 @@ def compute_auc(pos_score, neg_score):
         [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]).numpy()
     return roc_auc_score(labels, scores)
 
-
+######################################################################
 # Training loop
-all_logits = []
-for e in range(100):
-    # forward
-    h = model(train_g, train_g.ndata['feat'])
+dur = []
+cur = time.time()
+for e in range(200):
+    model.train()
+    # forward propagation on training set
+    h = model(features)
     pos_score = pred(train_pos_g, h)
     neg_score = pred(train_neg_g, h)
     loss = compute_loss(pos_score, neg_score)
-    
+    # evaluation on test set
+    model.eval()
+    with torch.no_grad():
+        test_pos_score = pred(test_pos_g, h)
+        test_neg_score = pred(test_neg_g, h)
+        test_acc = compute_auc(test_pos_score, test_neg_score)
+        train_acc = compute_auc(pos_score, neg_score)
     # backward
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    
+
+    dur.append(time.time() - cur)
+    cur = time.time()
+
     if e % 5 == 0:
-        print('In epoch {}, loss: {}'.format(e, loss))
+        print("Epoch {:05d} | Loss {:.4f} | Train AUC {:.4f} | Test AUC {:.4f} | Time {:.4f}".format(
+              e, loss.item(), train_acc, test_acc, dur[-1]))
 
 # Print testing result
-from sklearn.metrics import roc_auc_score
-with torch.no_grad():
-    pos_score = pred(test_pos_g, h)
-    neg_score = pred(test_neg_g, h)
-    print('AUC', compute_auc(pos_score, neg_score))
+# from sklearn.metrics import roc_auc_score
+# with torch.no_grad():
+#     pos_score = pred(test_pos_g, h)
+#     neg_score = pred(test_neg_g, h)
+#     print('AUC', compute_auc(pos_score, neg_score))
 
