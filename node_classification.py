@@ -8,7 +8,6 @@ Node Classification Task: predicting labels of arbitrary nodes in a graph.
 
 from dgl import DGLGraph
 import dgl.data 
-import networkx as nx
 import numpy as np
 import time
 import torch

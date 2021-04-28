@@ -18,6 +18,8 @@ from sklearn.metrics import roc_auc_score
 import dgl.data
 from models import GraphSAGE
 
+print('pytorch version: ', torch.__version__)
+
 """
 Construct dataset for link prediction
 """
@@ -193,11 +195,3 @@ for e in range(200):
     if e % 5 == 0:
         print("Epoch {:05d} | Loss {:.4f} | Train AUC {:.4f} | Test AUC {:.4f} | Time {:.4f}".format(
               e, loss.item(), train_acc, test_acc, dur[-1]))
-
-# Print testing result
-# from sklearn.metrics import roc_auc_score
-# with torch.no_grad():
-#     pos_score = pred(test_pos_g, h)
-#     neg_score = pred(test_neg_g, h)
-#     print('AUC', compute_auc(pos_score, neg_score))
-
