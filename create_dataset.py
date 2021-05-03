@@ -64,18 +64,18 @@ class MyDataset(DGLDataset):
         return 1
 
 def process_raw_karate():
-        urllib.request.urlretrieve(
-            'https://data.dgl.ai/tutorial/dataset/members.csv', './members.csv')
-        urllib.request.urlretrieve(
-            'https://data.dgl.ai/tutorial/dataset/interactions.csv', './interactions.csv')
+    urllib.request.urlretrieve(
+        'https://data.dgl.ai/tutorial/dataset/members.csv', './members.csv')
+    urllib.request.urlretrieve(
+        'https://data.dgl.ai/tutorial/dataset/interactions.csv', './interactions.csv')
 
-        edges = pd.read_csv('./interactions.csv')
-        nodes = pd.read_csv('./members.csv')
-        nodes['Label'] = nodes['Club'].astype('category').cat.codes
+    edges = pd.read_csv('./interactions.csv')
+    nodes = pd.read_csv('./members.csv')
+    nodes['Label'] = nodes['Club'].astype('category').cat.codes
 
-        node_feature = nodes['Age']
-        node_label = nodes[['Label', 'Club']]
-        
-        node_feature.to_csv('./mydata/karate_node_feature.csv', sep=',')
-        node_label.to_csv('./mydata/karate_node_label.csv', sep=',')
-        edges.to_csv('./mydata/karate_edge.csv', sep=',')
+    node_feature = nodes['Age']
+    node_label = nodes[['Label', 'Club']]
+    
+    node_feature.to_csv('./mydata/karate_node_feature.csv', sep=',')
+    node_label.to_csv('./mydata/karate_node_label.csv', sep=',')
+    edges.to_csv('./mydata/karate_edge.csv', sep=',')
