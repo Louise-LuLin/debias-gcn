@@ -33,7 +33,7 @@ parser.add_argument('--device', type=int, default=0,
                     help='cuda')
 
 parser.add_argument('--model', type=str, default='sage', 
-                    choices=['sage', 'gcn'], help='model variant')
+                    choices=['sage', 'gat'], help='model variant')
 parser.add_argument('--epochs', type=int, default=200,
                     help='Number of epochs to train.')
 parser.add_argument('--lr', type=float, default=0.001,
@@ -68,7 +68,7 @@ if device != 'cpu':
 
 ######################################################################
 # Load and construct data for link prediction task
-graph, features, train_pos_g, train_neg_g, test_pos_g, test_neg_g = construct_link_data(data_type=args.dataset)
+graph, features, train_pos_g, train_neg_g, test_pos_g, test_neg_g = construct_link_prediction_data(data_type=args.dataset)
 n_features = features.shape[1]
 
 # Initialize embedding model
