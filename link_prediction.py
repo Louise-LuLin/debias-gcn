@@ -14,6 +14,7 @@ import itertools
 import time
 import numpy as np
 import scipy.sparse as sp
+import pickle as pkl
 from sklearn.metrics import roc_auc_score
 import dgl.data
 from models import GraphSAGE
@@ -195,3 +196,14 @@ for e in range(200):
     if e % 5 == 0:
         print("Epoch {:05d} | Loss {:.4f} | Train AUC {:.4f} | Test AUC {:.4f} | Time {:.4f}".format(
               e, loss.item(), train_acc, test_acc, dur[-1]))
+
+######################################################################
+# Save embedding
+embeddings = h.detach().numpy()
+print ('==== save the following embeddings ====')
+print (embeddings)
+path = './{}_{}_embedding.bin'.format(data_type, model_type)
+with open(path, "wb") as output_file:
+    pkl.dump(embeddings, output_file)
+print ('==== saved to {} ===='.format(path))
+
