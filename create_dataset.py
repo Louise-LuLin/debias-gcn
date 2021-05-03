@@ -53,10 +53,6 @@ class MyDataset(DGLDataset):
         self.graph.ndata['val_mask'] = val_mask
         self.graph.ndata['test_mask'] = test_mask
 
-    # TODO: Define the other datasets as you like
-    def process_raw_movielens(self):
-        pass
-
     def __getitem__(self, i):
         return self.graph
 
@@ -79,3 +75,10 @@ def process_raw_karate():
     node_feature.to_csv('./mydata/karate_node_feature.csv', sep=',')
     node_label.to_csv('./mydata/karate_node_label.csv', sep=',')
     edges.to_csv('./mydata/karate_edge.csv', sep=',')
+
+# TODO: Define the other datasets as you like
+def process_raw_movielens():
+    pass
+
+# First process data into the unified csv format
+process_raw_karate()
