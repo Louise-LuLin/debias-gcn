@@ -83,7 +83,7 @@ class GAT(nn.Module):
         self.layer2 = MultiHeadGATLayer(graph, hidden_dim * num_heads, out_dim, 1)
 
     def forward(self, in_feat):
-        h = self.layer1(h)
+        h = self.layer1(in_feat)
         h = F.elu(h)
         h = self.layer2(h)
         return h

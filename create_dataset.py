@@ -10,6 +10,7 @@ We store three components for each dataset
 import dgl
 from dgl.data import DGLDataset
 import torch
+from dgl import backend as F
 import os
 import urllib.request
 import pandas as pd
@@ -25,9 +26,13 @@ class MyDataset(DGLDataset):
         node_labels = pd.read_csv('./mydata/{}_node_label.csv'.format(self.data_name))
         edges = pd.read_csv('./mydata/{}_edge.csv'.format(self.data_name))
 
+        c = node_labels['Label'].astype('category')
+        classes = dict(enumerate(c.cat.categories))
+        self.num_classes = len(classes)
+
         # Transform from DataFrame to torch tensor
         node_features = torch.from_numpy(node_features.to_numpy()).float()
-        node_labels = torch.from_numpy(node_labels['Label'].to_numpy()).int()
+        node_labels = torch.from_numpy(node_labels['Label'].to_numpy()).long()
         edge_features = torch.from_numpy(edges['Weight'].to_numpy()).float()
         edges_src = torch.from_numpy(edges['Src'].to_numpy())
         edges_dst = torch.from_numpy(edges['Dst'].to_numpy())
@@ -52,6 +57,18 @@ class MyDataset(DGLDataset):
         self.graph.ndata['train_mask'] = train_mask
         self.graph.ndata['val_mask'] = val_mask
         self.graph.ndata['test_mask'] = test_mask
+
+        print('Finished data loading and preprocessing.')
+        print('  NumNodes: {}'.format(self.graph.number_of_nodes()))
+        print('  NumEdges: {}'.format(self.graph.number_of_edges()))
+        print('  NumFeats: {}'.format(self.graph.ndata['feat'].shape[1]))
+        print('  NumClasses: {}'.format(self.num_classes))
+        print('  NumTrainingSamples: {}'.format(
+            F.nonzero_1d(self.graph.ndata['train_mask']).shape[0]))
+        print('  NumValidationSamples: {}'.format(
+            F.nonzero_1d(self.graph.ndata['val_mask']).shape[0]))
+        print('  NumTestSamples: {}'.format(
+            F.nonzero_1d(self.graph.ndata['test_mask']).shape[0]))
 
     def __getitem__(self, i):
         return self.graph

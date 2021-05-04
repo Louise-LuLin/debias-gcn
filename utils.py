@@ -32,19 +32,64 @@ def compute_auc(pos_score, neg_score):
         [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]).numpy()
     return roc_auc_score(labels, scores)
 
-def construct_link_data(data_type='cora'):
+def load_node_classification_data(data_type='cora'):
+    """Construct dataset for node classification
+    
+    Parameters
+    ----------
+    data_type :
+        name of dataset
+
+    Returns
+    -------
+    graph : 
+        graph data; dgl.graph
+    features :
+        node feature; torch tensor
+    labels :
+        node label; torch tensor
+    train/valid/test_mask :
+        node mask for different set; torch tensor
+
+    """
+
+    if data_type == 'cora':
+        dataset = dgl.data.CoraGraphDataset()
+    elif data_type == 'citeseer':
+        dataset = dgl.data.CiteseerGraphDataset()
+    else:
+        dataset = MyDataset(data_name=data_type)
+    
+    graph = dataset[0]
+    features = graph.ndata['feat']
+    labels = graph.ndata['label']
+    train_mask = graph.ndata['train_mask']
+    valid_mask = graph.ndata['val_mask']
+    test_mask  = graph.ndata['test_mask']
+    return graph, features, labels, train_mask, valid_mask, test_mask
+
+def construct_link_prediction_data(data_type='cora'):
     """Construct dataset for link prediction
     
     Parameters
     ----------
-    root :
-        root directory where the variable should be saved
-    name : str
-        saved file name
+    data_type :
+        name of dataset
 
     Returns
     -------
-    None.
+    train_graph :
+        graph reconstructed by all training nodes; dgl.graph
+    features :
+        node feature; torch tensor
+    train_pos_g :
+        graph reconstructed by positive training edges; dgl.graph
+    train_neg_g :
+        graph reconstructed by negative training edges; dgl.graph
+    test_pos_g :
+        graph reconstructed by positive testing edges; dgl.graph
+    test_neg_g :
+        graph reconstructed by negative testing edges; dgl.graph
     """
 
     if data_type == 'cora':

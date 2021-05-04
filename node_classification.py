@@ -47,32 +47,27 @@ parser.add_argument('--out_dir', type=str, default='./embeddings',
 
 args = parser.parse_args()
 
+######################################################################
+# Set up device and fix random seed
+print ('==== Environment ====')
 device = torch.device('cuda:{}'.format(args.device) if torch.cuda.is_available() else "cpu")
 torch.set_num_threads(1) # limit cpu use
-print ('==== Environment ====')
-print ('-- pytorch version: ', torch.__version__)
-print ('-- device: ', device)
+print ('  pytorch version: ', torch.__version__)
+print ('  device: ', device)
 
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if device != 'cpu':
     torch.cuda.manual_seed(args.seed)
 
-
-def evaluate(model, graph, features, labels, mask):
-    model.eval()
-    with torch.no_grad():
-        logits = model(features)
-        logits = logits[mask]
-        labels = labels[mask]
-        _, indices = torch.max(logits, dim=1)
-        correct =torch.sum(indices==labels)
-        return correct.item() * 1.0 / len(labels) # Accuracy
-
+######################################################################
+# Load and construct data for node classification task
+print ('==== Dataset ====')
 graph, features, labels, train_mask, valid_mask, test_mask = load_node_classification_data(args.dataset)
 n_features = features.shape[1]
 n_labels = int(labels.max().item() + 1)
 
+# Initialize embedding model
 if args.model == 'sage':
     model = GraphSAGE(graph,
                       in_dim=n_features, 
@@ -86,6 +81,19 @@ else:
                 num_heads=8)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+######################################################################
+print ('==== Training ====')
+# Training loop
+def evaluate(model, graph, features, labels, mask):
+    model.eval()
+    with torch.no_grad():
+        logits = model(features)
+        logits = logits[mask]
+        labels = labels[mask]
+        _, indices = torch.max(logits, dim=1)
+        correct =torch.sum(indices==labels)
+        return correct.item() * 1.0 / len(labels) # Accuracy
 
 dur = []
 cur = time.time()

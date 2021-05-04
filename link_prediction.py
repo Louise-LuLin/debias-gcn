@@ -21,7 +21,7 @@ import os
 from sklearn.metrics import roc_auc_score
 import dgl.data
 
-from models import GraphSAGE
+from models import GraphSAGE, GAT
 from create_dataset import MyDataset
 from predictors import DotLinkPredictor, MLPLinkPredictor
 from utils import *
@@ -55,11 +55,13 @@ parser.add_argument('--out_dir', type=str, default='./embeddings',
 
 args = parser.parse_args()
 
+######################################################################
+# Set up device and fix random seed
+print ('==== Environment ====')
 device = torch.device('cuda:{}'.format(args.device) if torch.cuda.is_available() else "cpu")
 torch.set_num_threads(1) # limit cpu use
-print ('==== Environment ====')
-print ('-- pytorch version: ', torch.__version__)
-print ('-- device: ', device)
+print ('  pytorch version: ', torch.__version__)
+print ('  device: ', device)
 
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -68,6 +70,7 @@ if device != 'cpu':
 
 ######################################################################
 # Load and construct data for link prediction task
+print ('==== Dataset ====')
 graph, features, train_pos_g, train_neg_g, test_pos_g, test_neg_g = construct_link_prediction_data(data_type=args.dataset)
 n_features = features.shape[1]
 
@@ -93,6 +96,7 @@ else:
 optimizer = torch.optim.Adam(itertools.chain(model.parameters(), pred.parameters()), lr=args.lr)
 
 ######################################################################
+print ('==== Training ====')
 # Training loop
 dur = []
 cur = time.time()
@@ -125,8 +129,8 @@ for e in range(args.epochs):
 ######################################################################
 # Save embedding
 embeddings = h.detach().numpy()
-print ('==== save the following embeddings ====')
-print (embeddings)
+print ('==== saving the learned embeddings ====')
+print ('Shape: {} | Type: {}'.format(embeddings.shape, type(embeddings)))
 path = '{}/{}_{}_embedding.bin'.format(args.out_dir, args.dataset, args.model)
 os.makedirs(args.out_dir, exist_ok=True)
 with open(path, "wb") as output_file:
