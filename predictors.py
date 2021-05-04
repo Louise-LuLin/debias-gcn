@@ -7,13 +7,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import dgl.function as fn
 
-# Dot product to predict the score of link
 class DotLinkPredictor(nn.Module):
     """
     Dot product to compute the score of link 
     The benefit of treating the pairs of nodes as a graph is that the score
     on edge can be easily computed via the ``DGLGraph.apply_edges`` method
     """
+
     def forward(self, g, h):
         with g.local_scope():
             g.ndata['h'] = h
@@ -23,8 +23,10 @@ class DotLinkPredictor(nn.Module):
             # u_dot_v returns a 1-element vector for each edge so you need to squeeze it.
             return g.edata['score'][:, 0]
 
-# MLP to predict the score of link
 class MLPLinkPredictor(nn.Module):
+    """MLP to predict the score of link
+    """
+    
     def __init__(self, h_feats):
         super().__init__()
         self.W1 = nn.Linear(h_feats * 2, h_feats)
@@ -56,3 +58,15 @@ class MLPLinkPredictor(nn.Module):
             g.apply_edges(self.apply_edges)
             return g.edata['score']
 
+class MLPNodePredictor(nn.Module):
+    """MLP to predict the logits for node classification
+    """
+
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.fc = nn.Linear(in_dim, out_dim, bias=False)
+
+    def forward(self, h):
+        logits = self.fc(h)
+        return logits
+            

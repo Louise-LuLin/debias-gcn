@@ -18,19 +18,31 @@ import dgl.data
 from create_dataset import MyDataset
 
 def compute_entropy_loss(pos_score, neg_score):
-    """Compute cross entropy loss
+    """Compute cross entropy loss for link prediction
     """
+
     scores = torch.cat([pos_score, neg_score])
     labels = torch.cat([torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])])
     return F.binary_cross_entropy_with_logits(scores, labels)
 
 def compute_auc(pos_score, neg_score):
-    """Compute AUC metric
+    """Compute AUC metric for link prediction
     """
+    
     scores = torch.cat([pos_score, neg_score]).numpy()
     labels = torch.cat(
         [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]).numpy()
     return roc_auc_score(labels, scores)
+
+def evaluate_acc(logits, labels, mask):
+    """Compute Accuracy for node classification
+    """
+
+    logits = logits[mask]
+    labels = labels[mask]
+    _, indices = torch.max(logits, dim=1)
+    correct =torch.sum(indices==labels)
+    return correct.item() * 1.0 / len(labels) # Accuracy
 
 def load_node_classification_data(data_type='cora'):
     """Construct dataset for node classification

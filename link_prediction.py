@@ -46,7 +46,7 @@ parser.add_argument('--dim2', type=int, default=16,
                     help='Number of second layer hidden units.')
 
 parser.add_argument('--predictor', type=str, default='dot',
-                    help='Predictor of the output layer')
+                    choices=['dot', 'mlp'], help='Predictor of the output layer')
 
 parser.add_argument('--dataset', type=str, default='cora', 
                     choices=['cora', 'citeseer', 'karate'], help='dataset')
@@ -91,7 +91,7 @@ else:
 if args.predictor == 'dot':
     pred = DotLinkPredictor()
 else:
-    pred = MLPLinkPredictor() 
+    pred = MLPLinkPredictor(args.dim2) 
 
 optimizer = torch.optim.Adam(itertools.chain(model.parameters(), pred.parameters()), lr=args.lr)
 
@@ -112,8 +112,8 @@ for e in range(args.epochs):
     with torch.no_grad():
         test_pos_score = pred(test_pos_g, h)
         test_neg_score = pred(test_neg_g, h)
-        test_acc = compute_auc(test_pos_score, test_neg_score)
-        train_acc = compute_auc(pos_score, neg_score)
+        test_auc = compute_auc(test_pos_score, test_neg_score)
+        train_auc = compute_auc(pos_score, neg_score)
     # backward
     optimizer.zero_grad()
     loss.backward()
@@ -124,7 +124,7 @@ for e in range(args.epochs):
 
     if e % 5 == 0:
         print("Epoch {:05d} | Loss {:.4f} | Train AUC {:.4f} | Test AUC {:.4f} | Time {:.4f}".format(
-              e, loss.item(), train_acc, test_acc, dur[-1]))
+              e, loss.item(), train_auc, test_auc, dur[-1]))
 
 ######################################################################
 # Save embedding

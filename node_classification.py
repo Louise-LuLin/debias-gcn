@@ -19,6 +19,7 @@ import pickle as pkl
 
 from models import GAT, GraphSAGE
 from utils import * 
+from predictors import MLPNodePredictor
 
 
 parser = argparse.ArgumentParser()
@@ -72,39 +73,40 @@ if args.model == 'sage':
     model = GraphSAGE(graph,
                       in_dim=n_features, 
                       hidden_dim=args.dim1, 
-                      out_dim=n_labels)
+                      out_dim=args.dim2)
 else:
     model = GAT(graph,
                 in_dim=n_features,
                 hidden_dim=args.dim1//8,
-                out_dim=n_labels,
+                out_dim=args.dim2,
                 num_heads=8)
+
+predictor = MLPNodePredictor(args.dim2, n_labels)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 ######################################################################
 print ('==== Training ====')
 # Training loop
-def evaluate(model, graph, features, labels, mask):
-    model.eval()
-    with torch.no_grad():
-        logits = model(features)
-        logits = logits[mask]
-        labels = labels[mask]
-        _, indices = torch.max(logits, dim=1)
-        correct =torch.sum(indices==labels)
-        return correct.item() * 1.0 / len(labels) # Accuracy
-
 dur = []
 cur = time.time()
 for e in range(args.epochs):
     model.train()
     # forward propagation using all nodes
-    logits = model(features)
+    h = model(features)
+    logits = predictor(h)
+
     # compute loss
     loss = F.cross_entropy(logits[train_mask], labels[train_mask])
+
     # compute validation accuracy
-    acc = evaluate(model, graph, features, labels, valid_mask)
+    model.eval()
+    with torch.no_grad():
+        # calculate accuracy
+        train_acc = evaluate_acc(logits, labels, train_mask)
+        valid_acc = evaluate_acc(logits, labels, valid_mask)
+        test_acc = evaluate_acc(logits, labels, test_mask)
+
     # backward propagation
     optimizer.zero_grad()
     loss.backward()
@@ -114,16 +116,16 @@ for e in range(args.epochs):
     cur = time.time()
     
     if e % 5 == 0:
-        print("Epoch {:05d} | Loss {:.4f} | Accuracy {:.4f} | Time {:.4f}".format(
-              e, loss.item(), acc, dur[-1]))
+        print("Epoch {:05d} | Loss {:.4f} | Train ccuracy {:.4f} | Valid ccuracy {:.4f} | Test ccuracy {:.4f} | Time {:.4f}".format(
+              e, loss.item(), train_acc, valid_acc, test_acc, dur[-1]))
 
-# ######################################################################
-# # Save embedding
-# embeddings = h.detach().numpy()
-# print ('==== save the following embeddings ====')
-# print (embeddings)
-# path = '{}/{}_{}_embedding.bin'.format(args.out_dir, args.dataset, args.model)
-# os.makedirs(args.out_dir, exist_ok=True)
-# with open(path, "wb") as output_file:
-#     pkl.dump(embeddings, output_file)
-# print ('==== saved to {} ===='.format(path))
+######################################################################
+# Save embedding
+embeddings = h.detach().numpy()
+print ('==== saving the learned embeddings ====')
+print ('Shape: {} | Type: {}'.format(embeddings.shape, type(embeddings)))
+path = '{}/{}_{}_embedding_supervised.bin'.format(args.out_dir, args.dataset, args.model)
+os.makedirs(args.out_dir, exist_ok=True)
+with open(path, "wb") as output_file:
+    pkl.dump(embeddings, output_file)
+print ('==== saved to {} ===='.format(path))
