@@ -77,13 +77,19 @@ class MyDataset(DGLDataset):
         return 1
 
 def process_raw_karate():
-    urllib.request.urlretrieve(
-        'https://data.dgl.ai/tutorial/dataset/members.csv', './members.csv')
-    urllib.request.urlretrieve(
-        'https://data.dgl.ai/tutorial/dataset/interactions.csv', './interactions.csv')
+    os.makedirs('./tmp', exist_ok=True)
+    os.makedirs('./mydata', exist_ok=True)
 
-    edges = pd.read_csv('./interactions.csv')
-    nodes = pd.read_csv('./members.csv')
+    edge_tmp_file = './tmp/interactions.csv'
+    node_tmp_file = './tmp/members.csv'
+
+    urllib.request.urlretrieve(
+        'https://data.dgl.ai/tutorial/dataset/members.csv', node_tmp_file)
+    urllib.request.urlretrieve(
+        'https://data.dgl.ai/tutorial/dataset/interactions.csv', edge_tmp_file)
+
+    edges = pd.read_csv(edge_tmp_file)
+    nodes = pd.read_csv(node_tmp_file)
     nodes['Label'] = nodes['Club'].astype('category').cat.codes
 
     node_feature = nodes['Age']
@@ -99,3 +105,4 @@ def process_raw_movielens():
 
 # First process data into the unified csv format
 process_raw_karate()
+data = MyDataset('karate')

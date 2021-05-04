@@ -136,4 +136,3 @@ os.makedirs(args.out_dir, exist_ok=True)
 with open(path, "wb") as output_file:
     pkl.dump(embeddings, output_file)
 print ('==== saved to {} ===='.format(path))
-
