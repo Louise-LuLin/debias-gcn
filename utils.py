@@ -129,7 +129,12 @@ def construct_link_prediction_data(data_type='cora'):
 
     # Find all negative edges and split them for training and testing
     adj = sp.coo_matrix((np.ones(len(u)), (u.numpy(), v.numpy())))
-    adj_neg = 1 - adj.todense() - np.eye(graph.number_of_nodes())
+    if data_type != 'movielens':
+        mask = np.eye(adj.shape[0])
+    else: # for bipartite graph, mask user-user pairs
+        mask = np.zeros_like(adj.todense())
+        mask[:adj.shape[0], :adj.shape[0]] = 1 # requirement: src node starts at 0
+    adj_neg = 1 - adj.todense() - mask
     neg_u, neg_v = np.where(adj_neg != 0)
 
     neg_eids = np.random.choice(len(neg_u), graph.number_of_edges() // 2)

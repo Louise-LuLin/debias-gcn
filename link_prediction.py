@@ -49,7 +49,7 @@ parser.add_argument('--predictor', type=str, default='dot',
                     choices=['dot', 'mlp'], help='Predictor of the output layer')
 
 parser.add_argument('--dataset', type=str, default='cora', 
-                    choices=['cora', 'citeseer', 'karate'], help='dataset')
+                    choices=['cora', 'citeseer', 'karate', 'movielens'], help='dataset')
 parser.add_argument('--out_dir', type=str, default='./embeddings', 
                     help='output embedding foler')
 
