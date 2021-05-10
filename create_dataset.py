@@ -103,6 +103,7 @@ def process_raw_karate():
 def process_raw_movielens():
     pass
 
-# First process data into the unified csv format
-process_raw_karate()
-data = MyDataset('karate')
+if __name__ == '__main__':
+    # First process data into the unified csv format
+    process_raw_karate()
+    data = MyDataset('karate')
