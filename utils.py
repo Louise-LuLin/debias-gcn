@@ -41,8 +41,8 @@ def compute_metric(pos_score, neg_score, pos_u, pos_v, neg_u, neg_v, byNode=Fals
         
     if byNode == False:
         auc = roc_auc_score(y_true.numpy(), y_pred.numpy())
-        ndcg = 0
-        # ndcg = ndcg_score(y_true.numpy(), y_pred.numpy())
+        # ndcg = 0 
+        ndcg = ndcg_score(y_true.numpy(), y_pred.numpy()) # super slow! you can comment it 
     else:
         u = torch.cat([pos_u, neg_u])
         v = torch.cat([pos_v, neg_v])
