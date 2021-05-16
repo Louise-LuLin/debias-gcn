@@ -92,19 +92,22 @@ for src_n, des_ns in tqdm.tqdm(edge_dict.items()):
     auc_rd.append( roc_auc_score(y_true, y_pred2) )
 
     # calc Nan's ndcg
-    myndcg.append( ndcg_at_k(y_pred, 10) )
-    myndcg_rd.append( ndcg_at_k(y_pred2, 10) )
+    keys = np.argsort(y_pred)[::-1]
+    myndcg.append( ndcg_at_k(y_true[keys], 10) )
+    keys_rd = np.argsort(y_pred2)[::-1]
+    myndcg_rd.append( ndcg_at_k(y_true[keys_rd], 10) )
 
     # calc sklearn ndcg
     ndcg.append( ndcg_score(np.expand_dims(y_true, axis=0), np.expand_dims(y_pred, axis=0), k=10) )
     ndcg_rd.append( ndcg_score(np.expand_dims(y_true, axis=0), np.expand_dims(y_pred2, axis=0), k=10) )
 
     i += 1
-    if i % 50 == 0:
-        print ('  model  | auc  | myndcg | sklean ndcg ')
+    if i % 200 == 0:
+        print ('  model  |  auc  | myndcg | sklean ndcg ')
         print ('  sage   | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc), np.mean(myndcg), np.mean(ndcg)))
         print ('  random | {:.4f} | {:.4f} | {:.4f} '.format(np.mean(auc_rd), np.mean(myndcg_rd), np.mean(ndcg_rd)))
 
-print ('  model  | auc  | myndcg | sklean ndcg ')
+print ('=== Final Result ===')
+print ('  model  |  auc  | myndcg | sklean ndcg ')
 print ('  sage   | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc), np.mean(myndcg), np.mean(ndcg)))
 print ('  random | {:.4f} | {:.4f} | {:.4f} '.format(np.mean(auc_rd), np.mean(myndcg_rd), np.mean(ndcg_rd)))
