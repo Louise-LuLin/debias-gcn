@@ -18,44 +18,49 @@ from sklearn.metrics import roc_auc_score, ndcg_score
 import dgl.data
 from create_dataset import MyDataset
 
-def compute_entropy_loss(pos_score, neg_score, pos_u, pos_v, neg_u, neg_v, byNode=False):
+def compute_entropy_loss(pos_score, neg_score, index_dict, device='cpu', byNode=False):
     """Compute cross entropy loss for link prediction
     """
 
-    scores = torch.cat([pos_score, neg_score])
-    labels = torch.cat([torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])])
+    scores = torch.cat([pos_score, neg_score]).to(device)
+    labels = torch.cat([torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]).to(device)
     return F.binary_cross_entropy_with_logits(scores, labels)
 
-def compute_metric(pos_score, neg_score, pos_u, pos_v, neg_u, neg_v, byNode=False):
+def compute_metric(pos_score, neg_score, index_dict, device='cpu', byNode=False):
     """Compute AUC, NDCG metric for link prediction
     """
-    
-    scores = torch.sigmoid(torch.cat([pos_score, neg_score])) # the probability of positive label
-    scores_flip = 1.0 - scores # the probability of negative label
-    y_pred =  torch.transpose(torch.stack((scores, scores_flip)), 0, 1)
-
-    labels = torch.cat(
-        [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])])
-    labels_flip = 1 - labels # to generate one-hot labels
-    y_true = torch.transpose(torch.stack((labels, labels_flip)), 0, 1).int()
-        
+            
     if byNode == False:
-        auc = roc_auc_score(y_true.numpy(), y_pred.numpy())
+        scores = torch.sigmoid(torch.cat([pos_score, neg_score])) # the probability of positive label
+        scores_flip = 1.0 - scores # the probability of negative label
+        y_pred =  torch.transpose(torch.stack((scores, scores_flip)), 0, 1)
+
+        labels = torch.cat(
+            [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])])
+        labels_flip = 1 - labels # to generate one-hot labels
+        y_true = torch.transpose(torch.stack((labels, labels_flip)), 0, 1).int()
+
+        auc = roc_auc_score(y_true.cpu(), y_pred.cpu())
         # ndcg = 0 
-        ndcg = ndcg_score(y_true.numpy(), y_pred.numpy()) # super slow! you can comment it 
+        ndcg = ndcg_score(y_true.cpu(), y_pred.cpu()) # super slow! you can comment it 
     else:
-        u = torch.cat([pos_u, neg_u])
-        v = torch.cat([pos_v, neg_v])
-        node_dict = {} # group edge idx by node id
-        for i in range(len(u.numpy().tolist())):
-            if u.numpy()[i] not in node_dict:
-                node_dict[u.numpy()[i]] = []
-            node_dict[u.numpy()[i]].append(i)
         auc = []
         ndcg = []
-        for src_n, idxs in tqdm.tqdm(node_dict.items()):
-            auc.append(roc_auc_score(y_true[idxs].numpy(), y_pred[idxs].numpy()))
-            ndcg.append(ndcg_score(y_true[idxs].numpy(), y_pred[idxs].numpy()))
+        for src_n, idxs in tqdm.tqdm(index_dict.items()):
+            if len(idxs) == 0: # this may happen when not sample by node
+                continue
+            
+            scores = torch.sigmoid(torch.cat([pos_score[idxs], neg_score[idxs]]))
+            scores_flip = 1.0 - scores 
+            y_pred =  torch.transpose(torch.stack((scores, scores_flip)), 0, 1)
+
+            labels = torch.cat([torch.ones(pos_score[idxs].shape[0]), torch.zeros(neg_score[idxs].shape[0])]) 
+            labels_flip = 1 - labels
+            y_true = torch.transpose(torch.stack((labels, labels_flip)), 0, 1).int()
+
+            auc.append(roc_auc_score(y_true.cpu(), y_pred.cpu()))
+            ndcg.append(ndcg_score(y_true.cpu(), y_pred.cpu()))
+
         auc = np.mean(np.array(auc))
         ndcg = np.mean(np.array(ndcg))
 
@@ -164,8 +169,8 @@ def construct_link_prediction_data(data_type='cora', device='cpu'):
     adj_neg = 1 - adj.todense() - mask
     neg_u, neg_v = np.where(adj_neg != 0)
 
-    # neg_eids = np.random.choice(len(neg_u), graph.number_of_edges() // 2)
-    neg_eids = np.random.permutation(np.arange(len(neg_u))) # np.random.choice(len(neg_u), graph.number_of_edges())
+    neg_eids = np.random.choice(len(neg_u), graph.number_of_edges() // 2)
+    # neg_eids = np.random.permutation(np.arange(len(neg_u))) # np.random.choice(len(neg_u), graph.number_of_edges())
     test_neg_u, test_neg_v = neg_u[neg_eids[:test_size]], neg_v[neg_eids[:test_size]]
     train_neg_u, train_neg_v = neg_u[neg_eids[test_size:]], neg_v[neg_eids[test_size:]]
 
@@ -197,11 +202,7 @@ def construct_link_prediction_data(data_type='cora', device='cpu'):
 
     return train_graph.to(device), features.to(device), \
            train_pos_g.to(device), train_neg_g.to(device), \
-           test_pos_g.to(device), test_neg_g.to(device), \
-           train_pos_u.to(device), train_pos_v.to(device), \
-           train_neg_u.to(device), train_neg_v.to(device), \
-           test_pos_u.to(device), test_pos_v.to(device), \
-           test_neg_u.to(device), test_neg_v.to(device)
+           test_pos_g.to(device), test_neg_g.to(device)
 
 def construct_link_prediction_data_nodewise(data_type='cora', device='cpu'):
     """Construct dataset for link prediction
@@ -262,6 +263,8 @@ def construct_link_prediction_data_nodewise(data_type='cora', device='cpu'):
     train_pos_u, train_pos_v = [], []
     train_neg_u, train_neg_v = [], []
     test_eids = []
+    train_index_dict = {}
+    test_index_dict = {}
     for src_n, des_ns in tqdm.tqdm(edge_dict.items()):
         
         pos_des_ns = np.random.permutation(des_ns)
@@ -279,11 +282,15 @@ def construct_link_prediction_data_nodewise(data_type='cora', device='cpu'):
                 test_pos_v += [pos_des_ns[n] for i in range(len(neg_des_ns))]
                 test_pos_u += [src_n for i in range(len(neg_des_ns))]
                 test_eids.append(eid_dict[(src_n, pos_des_ns[n])])
+                # store index grouped by node
+                test_index_dict[src_n] = [len(test_neg_v)-1-i for i in range(len(neg_des_ns))]
             else: # training set
                 train_neg_v += list(neg_des_ns)
                 train_neg_u += [src_n for i in range(len(neg_des_ns))]
                 train_pos_v += [pos_des_ns[n] for i in range(len(neg_des_ns))]
                 train_pos_u += [src_n for i in range(len(neg_des_ns))]
+                # store index grouped by node
+                train_index_dict[src_n] = [len(train_neg_v)-1-i for i in range(len(neg_des_ns))]
 
     # tranform to tensor
     test_pos_u, test_pos_v = torch.tensor(test_pos_u), torch.tensor(test_pos_v)
@@ -315,7 +322,4 @@ def construct_link_prediction_data_nodewise(data_type='cora', device='cpu'):
     return train_graph.to(device), features.to(device), \
            train_pos_g.to(device), train_neg_g.to(device), \
            test_pos_g.to(device), test_neg_g.to(device), \
-           train_pos_u.to(device), train_pos_v.to(device), \
-           train_neg_u.to(device), train_neg_v.to(device), \
-           test_pos_u.to(device), test_pos_v.to(device), \
-           test_neg_u.to(device), test_neg_v.to(device)
+           train_index_dict, test_index_dict
