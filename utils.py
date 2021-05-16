@@ -11,13 +11,14 @@ import numpy as np
 import scipy.sparse as sp
 import pickle as pkl
 import argparse
+import tqdm
 
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, ndcg_score
 
 import dgl.data
 from create_dataset import MyDataset
 
-def compute_entropy_loss(pos_score, neg_score):
+def compute_entropy_loss(pos_score, neg_score, pos_u, pos_v, neg_u, neg_v, byNode=False):
     """Compute cross entropy loss for link prediction
     """
 
@@ -25,14 +26,40 @@ def compute_entropy_loss(pos_score, neg_score):
     labels = torch.cat([torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])])
     return F.binary_cross_entropy_with_logits(scores, labels)
 
-def compute_auc(pos_score, neg_score):
-    """Compute AUC metric for link prediction
+def compute_metric(pos_score, neg_score, pos_u, pos_v, neg_u, neg_v, byNode=False):
+    """Compute AUC, NDCG metric for link prediction
     """
     
-    scores = torch.cat([pos_score, neg_score]).numpy()
+    scores = torch.sigmoid(torch.cat([pos_score, neg_score])) # the probability of positive label
+    scores_flip = 1.0 - scores # the probability of negative label
+    y_pred =  torch.transpose(torch.stack((scores, scores_flip)), 0, 1)
+
     labels = torch.cat(
-        [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]).numpy()
-    return roc_auc_score(labels, scores)
+        [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])])
+    labels_flip = 1 - labels # to generate one-hot labels
+    y_true = torch.transpose(torch.stack((labels, labels_flip)), 0, 1).int()
+        
+    if byNode == False:
+        auc = roc_auc_score(y_true.numpy(), y_pred.numpy())
+        ndcg = 0
+        # ndcg = ndcg_score(y_true.numpy(), y_pred.numpy())
+    else:
+        u = torch.cat([pos_u, neg_u])
+        v = torch.cat([pos_v, neg_v])
+        node_dict = {} # group edge idx by node id
+        for i in range(len(u.numpy().tolist())):
+            if u.numpy()[i] not in node_dict:
+                node_dict[u.numpy()[i]] = []
+            node_dict[u.numpy()[i]].append(i)
+        auc = []
+        ndcg = []
+        for src_n, idxs in tqdm.tqdm(node_dict.items()):
+            auc.append(roc_auc_score(y_true[idxs].numpy(), y_pred[idxs].numpy()))
+            ndcg.append(ndcg_score(y_true[idxs].numpy(), y_pred[idxs].numpy()))
+        auc = np.mean(np.array(auc))
+        ndcg = np.mean(np.array(ndcg))
+
+    return auc, ndcg
 
 def evaluate_acc(logits, labels, mask):
     """Compute Accuracy for node classification
@@ -44,7 +71,7 @@ def evaluate_acc(logits, labels, mask):
     correct =torch.sum(indices==labels)
     return correct.item() * 1.0 / len(labels) # Accuracy
 
-def load_node_classification_data(data_type='cora'):
+def load_node_classification_data(data_type='cora', device='cpu'):
     """Construct dataset for node classification
     
     Parameters
@@ -72,15 +99,15 @@ def load_node_classification_data(data_type='cora'):
     else:
         dataset = MyDataset(data_name=data_type)
     
-    graph = dataset[0]
-    features = graph.ndata['feat']
-    labels = graph.ndata['label']
-    train_mask = graph.ndata['train_mask']
-    valid_mask = graph.ndata['val_mask']
-    test_mask  = graph.ndata['test_mask']
+    graph = dataset[0].to(devide)
+    features = graph.ndata['feat'].to(device)
+    labels = graph.ndata['label'].to(device)
+    train_mask = graph.ndata['train_mask'].to(device)
+    valid_mask = graph.ndata['val_mask'].to(device)
+    test_mask  = graph.ndata['test_mask'].to(device)
     return graph, features, labels, train_mask, valid_mask, test_mask
 
-def construct_link_prediction_data(data_type='cora'):
+def construct_link_prediction_data(data_type='cora', device='cpu'):
     """Construct dataset for link prediction
     
     Parameters
@@ -137,9 +164,22 @@ def construct_link_prediction_data(data_type='cora'):
     adj_neg = 1 - adj.todense() - mask
     neg_u, neg_v = np.where(adj_neg != 0)
 
-    neg_eids = np.random.choice(len(neg_u), graph.number_of_edges() // 2)
+    # neg_eids = np.random.choice(len(neg_u), graph.number_of_edges() // 2)
+    neg_eids = np.random.permutation(np.arange(len(neg_u))) # np.random.choice(len(neg_u), graph.number_of_edges())
     test_neg_u, test_neg_v = neg_u[neg_eids[:test_size]], neg_v[neg_eids[:test_size]]
     train_neg_u, train_neg_v = neg_u[neg_eids[test_size:]], neg_v[neg_eids[test_size:]]
+
+    # tranform to tensor
+    # test_pos_u, test_pos_v = torch.tensor(test_pos_u), torch.tensor(test_pos_v)
+    test_neg_u, test_neg_v = torch.tensor(test_neg_u), torch.tensor(test_neg_v)
+    # train_pos_u, train_pos_v = torch.tensor(train_pos_u), torch.tensor(train_pos_v)
+    train_neg_u, train_neg_v = torch.tensor(train_neg_u), torch.tensor(train_neg_v)
+
+    print ('==== Link Prediction Data ====')
+    print ('  TrainPosEdges: ', len(train_pos_u))
+    print ('  TrainNegEdges: ', len(train_neg_u))
+    print ('  TestPosEdges: ', len(test_pos_u))
+    print ('  TestNegEdges: ', len(test_neg_u))
 
     # Remove the edges in the test set from the original graph:
     # -  A subgraph will be created from the original graph by ``dgl.remove_edges``
@@ -155,4 +195,127 @@ def construct_link_prediction_data(data_type='cora'):
     test_pos_g = dgl.graph((test_pos_u, test_pos_v), num_nodes=graph.number_of_nodes())
     test_neg_g = dgl.graph((test_neg_u, test_neg_v), num_nodes=graph.number_of_nodes())
 
-    return train_graph, features, train_pos_g, train_neg_g, test_pos_g, test_neg_g
+    return train_graph.to(device), features.to(device), \
+           train_pos_g.to(device), train_neg_g.to(device), \
+           test_pos_g.to(device), test_neg_g.to(device), \
+           train_pos_u.to(device), train_pos_v.to(device), \
+           train_neg_u.to(device), train_neg_v.to(device), \
+           test_pos_u.to(device), test_pos_v.to(device), \
+           test_neg_u.to(device), test_neg_v.to(device)
+
+def construct_link_prediction_data_nodewise(data_type='cora', device='cpu'):
+    """Construct dataset for link prediction
+    
+    Parameters
+    ----------
+    data_type :
+        name of dataset
+
+    Returns
+    -------
+    train_graph :
+        graph reconstructed by all training nodes; dgl.graph
+    features :
+        node feature; torch tensor
+    train_pos_g :
+        graph reconstructed by positive training edges; dgl.graph
+    train_neg_g :
+        graph reconstructed by negative training edges; dgl.graph
+    test_pos_g :
+        graph reconstructed by positive testing edges; dgl.graph
+    test_neg_g :
+        graph reconstructed by negative testing edges; dgl.graph
+    """
+
+    if data_type == 'cora':
+        dataset = dgl.data.CoraGraphDataset()
+    elif data_type == 'citeseer':
+        dataset = dgl.data.CiteseerGraphDataset()
+    else:
+        dataset = MyDataset(data_name=data_type)
+    
+    graph = dataset[0]
+    features = graph.ndata['feat']
+
+    # Split the edge set for training and testing sets:
+    # -  Randomly picks 10% of the edges in test set as positive examples
+    # -  Leave the rest for the training set
+    # -  Sample the same number of edges for negative examples in both sets
+    u, v, eids = graph.edges(form='all')
+
+    # edges grouped by node
+    src_nodes = set(u.numpy().tolist()) # all source node idx
+    des_nodes = set(v.numpy().tolist()) # all destination node idx
+    edge_dict = {}
+    eid_dict = {}
+    for i in range(len(u.numpy().tolist())):
+        if u.numpy()[i] not in edge_dict:
+            edge_dict[u.numpy()[i]] = []
+        edge_dict[u.numpy()[i]].append(v.numpy()[i])
+        eid_dict[(u.numpy()[i], v.numpy()[i])] = eids.numpy()[i]
+    
+    # sample edges by node
+    neg_rate = 20
+    test_rate = 0.1
+    test_pos_u, test_pos_v = [], []
+    test_neg_u, test_neg_v = [], []
+    train_pos_u, train_pos_v = [], []
+    train_neg_u, train_neg_v = [], []
+    test_eids = []
+    for src_n, des_ns in tqdm.tqdm(edge_dict.items()):
+        
+        pos_des_ns = np.random.permutation(des_ns)
+        candidate_negs = list(des_nodes - set(pos_des_ns))
+
+        # split test/train while sampling neg
+        test_pos_size = int(len(pos_des_ns) * test_rate)
+        for n in range(len(pos_des_ns)):
+            # for each pos edge, sample neg_rate neg edges
+            neg_des_ns = np.random.choice(candidate_negs, neg_rate)
+
+            if n < test_pos_size: # testing set
+                test_neg_v += list(neg_des_ns)
+                test_neg_u += [src_n for i in range(len(neg_des_ns))]
+                test_pos_v += [pos_des_ns[n] for i in range(len(neg_des_ns))]
+                test_pos_u += [src_n for i in range(len(neg_des_ns))]
+                test_eids.append(eid_dict[(src_n, pos_des_ns[n])])
+            else: # training set
+                train_neg_v += list(neg_des_ns)
+                train_neg_u += [src_n for i in range(len(neg_des_ns))]
+                train_pos_v += [pos_des_ns[n] for i in range(len(neg_des_ns))]
+                train_pos_u += [src_n for i in range(len(neg_des_ns))]
+
+    # tranform to tensor
+    test_pos_u, test_pos_v = torch.tensor(test_pos_u), torch.tensor(test_pos_v)
+    test_neg_u, test_neg_v = torch.tensor(test_neg_u), torch.tensor(test_neg_v)
+    train_pos_u, train_pos_v = torch.tensor(train_pos_u), torch.tensor(train_pos_v)
+    train_neg_u, train_neg_v = torch.tensor(train_neg_u), torch.tensor(train_neg_v)
+    test_eids = torch.tensor(test_eids)
+
+    print ('==== Link Prediction Data ====')
+    print ('  TrainPosEdges: ', len(train_pos_u))
+    print ('  TrainNegEdges: ', len(train_neg_u))
+    print ('  TestPosEdges: ', len(test_pos_u))
+    print ('  TestNegEdges: ', len(test_neg_u))
+
+    # Remove the edges in the test set from the original graph:
+    # -  A subgraph will be created from the original graph by ``dgl.remove_edges``
+    train_graph = dgl.remove_edges(graph, test_eids)
+
+    # Construct positive graph and negative graph
+    # -  Positive graph consists of all the positive examples as edges
+    # -  Negative graph consists of all the negative examples
+    # -  Both contain the same set of nodes as the original graph
+    train_pos_g = dgl.graph((train_pos_u, train_pos_v), num_nodes=graph.number_of_nodes())
+    train_neg_g = dgl.graph((train_neg_u, train_neg_v), num_nodes=graph.number_of_nodes())
+
+    test_pos_g = dgl.graph((test_pos_u, test_pos_v), num_nodes=graph.number_of_nodes())
+    test_neg_g = dgl.graph((test_neg_u, test_neg_v), num_nodes=graph.number_of_nodes())
+
+    return train_graph.to(device), features.to(device), \
+           train_pos_g.to(device), train_neg_g.to(device), \
+           test_pos_g.to(device), test_neg_g.to(device), \
+           train_pos_u.to(device), train_pos_v.to(device), \
+           train_neg_u.to(device), train_neg_v.to(device), \
+           test_pos_u.to(device), test_pos_v.to(device), \
+           test_neg_u.to(device), test_neg_v.to(device)

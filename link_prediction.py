@@ -32,6 +32,11 @@ parser.add_argument('--seed', type=int, default=15,
 parser.add_argument('--device', type=int, default=0, 
                     help='cuda')
 
+parser.add_argument('--samplebyNode', type=bool, default=False,
+                    choices=[False, True], help='whether to sample edges by node')
+parser.add_argument('--evalbyNode', type=bool, default=False,
+                    choices=[False, True], help='whether to evaluate edges by node')
+
 parser.add_argument('--model', type=str, default='sage', 
                     choices=['sage', 'gat'], help='model variant')
 parser.add_argument('--epochs', type=int, default=200,
@@ -61,7 +66,8 @@ print ('==== Environment ====')
 device = torch.device('cuda:{}'.format(args.device) if torch.cuda.is_available() else "cpu")
 torch.set_num_threads(1) # limit cpu use
 print ('  pytorch version: ', torch.__version__)
-print ('  device: ', device)
+print ('  device: ', torch.cuda.current_device())
+
 
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -71,7 +77,15 @@ if device != 'cpu':
 ######################################################################
 # Load and construct data for link prediction task
 print ('==== Dataset ====')
-graph, features, train_pos_g, train_neg_g, test_pos_g, test_neg_g = construct_link_prediction_data(data_type=args.dataset)
+if args.samplebyNode == False:
+    graph, features, train_pos_g, train_neg_g, test_pos_g, test_neg_g, \
+    train_pos_u, train_pos_v, train_neg_u, train_neg_v, \
+    test_pos_u, test_pos_v, test_neg_u, test_neg_v = construct_link_prediction_data(data_type=args.dataset)
+else:
+    graph, features, train_pos_g, train_neg_g, test_pos_g, test_neg_g, \
+    train_pos_u, train_pos_v, train_neg_u, train_neg_v, \
+    test_pos_u, test_pos_v, test_neg_u, test_neg_v = construct_link_prediction_data_nodewise(data_type=args.dataset)
+
 n_features = features.shape[1]
 
 # Initialize embedding model
@@ -87,11 +101,14 @@ else:
                 out_dim=args.dim2,
                 num_heads=8)
 
+
 # Initialize link predictor
 if args.predictor == 'dot':
     pred = DotLinkPredictor()
 else:
     pred = MLPLinkPredictor(args.dim2) 
+
+# pred.to(device)
 
 optimizer = torch.optim.Adam(itertools.chain(model.parameters(), pred.parameters()), lr=args.lr)
 
@@ -104,16 +121,11 @@ for e in range(args.epochs):
     model.train()
     # forward propagation on training set
     h = model(features)
-    pos_score = pred(train_pos_g, h)
-    neg_score = pred(train_neg_g, h)
-    loss = compute_entropy_loss(pos_score, neg_score)
-    # evaluation on test set
-    model.eval()
-    with torch.no_grad():
-        test_pos_score = pred(test_pos_g, h)
-        test_neg_score = pred(test_neg_g, h)
-        test_auc = compute_auc(test_pos_score, test_neg_score)
-        train_auc = compute_auc(pos_score, neg_score)
+    train_pos_score = pred(train_pos_g, h)
+    train_neg_score = pred(train_neg_g, h)
+    loss = compute_entropy_loss(train_pos_score, train_neg_score,
+                                train_pos_u, train_pos_v,
+                                train_neg_u, train_neg_v)
     # backward
     optimizer.zero_grad()
     loss.backward()
@@ -123,8 +135,22 @@ for e in range(args.epochs):
     cur = time.time()
 
     if e % 5 == 0:
-        print("Epoch {:05d} | Loss {:.4f} | Train AUC {:.4f} | Test AUC {:.4f} | Time {:.4f}".format(
-              e, loss.item(), train_auc, test_auc, dur[-1]))
+        # evaluation on test set
+        model.eval()
+        with torch.no_grad():
+            test_pos_score = pred(test_pos_g, h)
+            test_neg_score = pred(test_neg_g, h)
+            test_auc, test_ndcg = compute_metric(test_pos_score, test_neg_score,
+                                                 test_pos_u, test_pos_v, 
+                                                 test_neg_u, test_neg_v,
+                                                 byNode = args.evalbyNode)
+            train_auc, train_ndcg = compute_metric(train_pos_score, train_neg_score,
+                                                   train_pos_u, train_pos_v,
+                                                   train_neg_u, train_neg_v,
+                                                   byNode = args.evalbyNode)
+
+        print("Epoch {:05d} | Loss {:.4f} | Train AUC {:.4f} | Train NDCG {:.4f} | Test AUC {:.4f} | Test NDCG {:.4f} | Time {:.4f}".format(
+              e, loss.item(), train_auc, train_ndcg, test_auc, test_ndcg, dur[-1]))
 
 ######################################################################
 # Save embedding
