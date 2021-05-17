@@ -16,29 +16,16 @@ import dgl.data
 from sklearn.metrics import roc_auc_score, ndcg_score
 from create_dataset import MyDataset
 
-def dcg_at_k(r, k):
-    r = np.asfarray(r)[:k]
-    if r.size != k:
-        raise ValueError('Ranking List length < k')    
-    return np.sum((2**r - 1) / np.log2(np.arange(2, r.size + 2)))
-
-def ndcg_at_k(r, k):
-    sort_r = sorted(r,reverse = True)
-    idcg = dcg_at_k(sort_r, k)
-    if not idcg:
-        return 0.
-    return dcg_at_k(r, k) / idcg
-
 dir = './embeddings'
 dataset = 'movielens'
 model = 'sage'
 
+# load graph
 mydata = MyDataset(data_name=dataset)
 graph = mydata[0]
-ratings = graph.edata['weight']
+ratings = graph.edata['weight'].numpy()
 u, v, eids = graph.edges(form='all')
 adj = np.array(sp.coo_matrix((np.ones(len(u)), (u.numpy(), v.numpy()))).todense())
-
 
 # load embeddings
 print ('==== loading the learned embeddings ====')
@@ -51,7 +38,7 @@ scores = np.dot(embeddings, embeddings.T)
 scores = softmax(scores, axis=1)
 
 # load bpr embeddings
-print ('==== loading the learned embeddings ====')
+print ('==== loading the bpr trained embeddings ====')
 path = '{}/{}_{}_bpr_embedding.bin'.format(dir, dataset, model)
 with open(path, "rb") as in_file:
     embeddings_bpr = pkl.load(in_file)
@@ -76,15 +63,21 @@ for i in range(len(u.numpy().tolist())):
     edge_dict[u.numpy()[i]].append(v.numpy()[i])
     eid_dict[(u.numpy()[i], v.numpy()[i])] = eids.numpy()[i]
 
+# retrieve ratings
+adj_ratings = np.zeros_like(adj)
+(row, col) = np.nonzero(adj)
+for i in range(len(row)):
+    adj_ratings[row[i]][col[i]] = ratings[eid_dict[(row[i], col[i])]]
+
 auc = []
 auc_bpr = []
 auc_rd = []
 ndcg = []
 ndcg_bpr = []
 ndcg_rd = []
-myndcg = []
-myndcg_bpr = []
-myndcg_rd = []
+ndcgrating = []
+ndcgrating_bpr = []
+ndcgrating_rd = []
 # only treat items as valid candidate set
 mask = np.array([adj.shape[0] + i for i in range(adj.shape[1]-adj.shape[0])])
 i = 0
@@ -95,33 +88,33 @@ for src_n, des_ns in tqdm.tqdm(edge_dict.items()):
 
     y_true = adj[src_n, mask]
 
+    # retrieve ratings
+    y_rating = adj_ratings[src_n, mask]
+
     # calc auc
     auc.append( roc_auc_score(y_true, y_pred) )
     auc_rd.append( roc_auc_score(y_true, y_pred_rd) )
     auc_bpr.append( roc_auc_score(y_true, y_pred_bpr) )
-
-    # calc Nan's ndcg
-    keys = np.argsort(y_pred)[::-1]
-    myndcg.append( ndcg_at_k(y_true[keys], 10) )
-    keys_rd = np.argsort(y_pred_rd)[::-1]
-    myndcg_rd.append( ndcg_at_k(y_true[keys_rd], 10) )
-    keys_bpr = np.argsort(y_pred_bpr)[::-1]
-    myndcg_bpr.append( ndcg_at_k(y_true[keys_bpr], 10) )
 
     # calc sklearn ndcg
     ndcg.append( ndcg_score(np.expand_dims(y_true, axis=0), np.expand_dims(y_pred, axis=0), k=10) )
     ndcg_rd.append( ndcg_score(np.expand_dims(y_true, axis=0), np.expand_dims(y_pred_rd, axis=0), k=10) )
     ndcg_bpr.append( ndcg_score(np.expand_dims(y_true, axis=0), np.expand_dims(y_pred_bpr, axis=0), k=10) )
 
+    # calc sklearn ndcg based on ratings
+    ndcgrating.append( ndcg_score(np.expand_dims(y_rating, axis=0), np.expand_dims(y_pred, axis=0), k=10) )
+    ndcgrating_rd.append( ndcg_score(np.expand_dims(y_rating, axis=0), np.expand_dims(y_pred_rd, axis=0), k=10) )
+    ndcgrating_bpr.append( ndcg_score(np.expand_dims(y_rating, axis=0), np.expand_dims(y_pred_bpr, axis=0), k=10) )
+
     i += 1
-    if i % 200 == 0:
-        print ('  model      |  auc   | myndcg | sklean ndcg ')
-        print ('  sage       | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc), np.mean(myndcg), np.mean(ndcg)))
-        print ('  sage_bpr   | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc_bpr), np.mean(myndcg_bpr), np.mean(ndcg_bpr)))
-        print ('  random     | {:.4f} | {:.4f} | {:.4f} '.format(np.mean(auc_rd), np.mean(myndcg_rd), np.mean(ndcg_rd)))
+    if i % 500 == 0:
+        print ('  model      |  auc   | ndcg | ndcg on rating ')
+        print ('  sage       | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc), np.mean(ndcg), np.mean(ndcgrating)))
+        print ('  sage_bpr   | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc_bpr), np.mean(ndcg_bpr), np.mean(ndcgrating_bpr)))
+        print ('  random     | {:.4f} | {:.4f} | {:.4f} '.format(np.mean(auc_rd), np.mean(ndcg_rd), np.mean(ndcgrating_rd)))
 
 print ('=== Final Result ===')
-print ('  model      |  auc   | myndcg | sklean ndcg ')
-print ('  sage       | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc), np.mean(myndcg), np.mean(ndcg)))
-print ('  sage_bpr   | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc_bpr), np.mean(myndcg_bpr), np.mean(ndcg_bpr)))
-print ('  random     | {:.4f} | {:.4f} | {:.4f} '.format(np.mean(auc_rd), np.mean(myndcg_rd), np.mean(ndcg_rd)))
+print ('  model      |  auc   | ndcg | ndcg on rating ')
+print ('  sage       | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc), np.mean(ndcg), np.mean(ndcgrating)))
+print ('  sage_bpr   | {:.4f} | {:.4f} | {:.4f}'.format(np.mean(auc_bpr), np.mean(ndcg_bpr), np.mean(ndcgrating_bpr)))
+print ('  random     | {:.4f} | {:.4f} | {:.4f} '.format(np.mean(auc_rd), np.mean(ndcg_rd), np.mean(ndcgrating_rd)))
