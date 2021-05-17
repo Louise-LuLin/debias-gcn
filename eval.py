@@ -35,7 +35,7 @@ with open(path, "rb") as in_file:
 print ('shape: ', embeddings.shape)
 # construct y_true, y_pred
 scores = np.dot(embeddings, embeddings.T)
-scores = softmax(scores, axis=1)
+# scores = softmax(scores, axis=1)
 
 # load bpr embeddings
 print ('==== loading the bpr trained embeddings ====')
@@ -45,12 +45,12 @@ with open(path, "rb") as in_file:
 print ('shape: ', embeddings_bpr.shape)
 # construct y_true, y_pred
 scores_bpr = np.dot(embeddings_bpr, embeddings_bpr.T)
-scores_bpr = softmax(scores_bpr, axis=1)
+# scores_bpr = softmax(scores_bpr, axis=1)
 
 # random embedding
 embeddings_rd = np.random.rand(embeddings.shape[0], embeddings.shape[1])
 scores_rd = np.dot(embeddings_rd, embeddings_rd.T)
-scores_rd = softmax(scores_rd, axis=1)
+# scores_rd = softmax(scores_rd, axis=1)
 
 # edges grouped by node
 src_nodes = set(u.numpy().tolist()) # all source node idx

@@ -39,7 +39,7 @@ parser.add_argument('--evalbyNode', type=str, default='no',
 
 parser.add_argument('--model', type=str, default='sage', 
                     choices=['sage', 'gat'], help='model variant')
-parser.add_argument('--epochs', type=int, default=200,
+parser.add_argument('--epochs', type=int, default=500,
                     help='Number of epochs to train.')
 parser.add_argument('--lr', type=float, default=0.001,
                     help='Initial learning rate.')

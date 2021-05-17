@@ -31,18 +31,13 @@ def compute_metric(pos_score, neg_score, index_dict, device='cpu', byNode=False)
     """
             
     if byNode == False:
-        scores = torch.sigmoid(torch.cat([pos_score, neg_score])) # the probability of positive label
-        scores_flip = 1.0 - scores # the probability of negative label
-        y_pred =  torch.transpose(torch.stack((scores, scores_flip)), 0, 1)
-
-        labels = torch.cat(
+        y_pred = torch.sigmoid(torch.cat([pos_score, neg_score])) # the probability of positive label
+        
+        y_true = torch.cat(
             [torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])])
-        labels_flip = 1 - labels # to generate one-hot labels
-        y_true = torch.transpose(torch.stack((labels, labels_flip)), 0, 1).int()
-
+        
         auc = roc_auc_score(y_true.cpu(), y_pred.cpu())
-        # ndcg = 0 
-        ndcg = ndcg_score(y_true.cpu(), y_pred.cpu()) # super slow! you can comment it 
+        ndcg = ndcg_score( np.expand_dims(y_true.cpu().numpy(), axis=0), np.expand_dims(y_pred.cpu().numpy(), axis=0)) # super slow! you can comment it 
     else:
         auc = []
         ndcg = []
@@ -50,16 +45,12 @@ def compute_metric(pos_score, neg_score, index_dict, device='cpu', byNode=False)
             if len(idxs) == 0: # this may happen when not sample by node
                 continue
             
-            scores = torch.sigmoid(torch.cat([pos_score[idxs], neg_score[idxs]]))
-            scores_flip = 1.0 - scores 
-            y_pred =  torch.transpose(torch.stack((scores, scores_flip)), 0, 1)
+            y_pred = torch.sigmoid(torch.cat([pos_score[idxs], neg_score[idxs]]))
 
-            labels = torch.cat([torch.ones(pos_score[idxs].shape[0]), torch.zeros(neg_score[idxs].shape[0])]) 
-            labels_flip = 1 - labels
-            y_true = torch.transpose(torch.stack((labels, labels_flip)), 0, 1).int()
-
+            y_true = torch.cat([torch.ones(pos_score[idxs].shape[0]), torch.zeros(neg_score[idxs].shape[0])]) 
+            
             auc.append(roc_auc_score(y_true.cpu(), y_pred.cpu()))
-            ndcg.append(ndcg_score(y_true.cpu(), y_pred.cpu()))
+            ndcg.append(ndcg_score( np.expand_dims(y_true.cpu().numpy(), axis=0), np.expand_dims(y_pred.cpu().numpy(), axis=0)))
 
         auc = np.mean(np.array(auc))
         ndcg = np.mean(np.array(ndcg))
@@ -256,7 +247,7 @@ def construct_link_prediction_data_nodewise(data_type='cora', device='cpu'):
         eid_dict[(u.numpy()[i], v.numpy()[i])] = eids.numpy()[i]
     
     # sample edges by node
-    neg_rate = 20
+    neg_rate = 30
     test_rate = 0.1
     test_pos_u, test_pos_v = [], []
     test_neg_u, test_neg_v = [], []
