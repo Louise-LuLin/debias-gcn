@@ -193,7 +193,7 @@ if args.debias:
     path = '{}/{}_{}_{}_{}_{}_{}_embedding.bin'.format(args.out_dir, args.dataset, 
                 args.debias, args.model, args.loss, str(args.lr).replace('.',''), args.epochs)
 else:
-    path = '{}/{}_{}_{}_{}_{}_{}_embedding.bin'.format(args.out_dir, args.dataset, 
+    path = '{}/{}_{}_{}_{}_{}_embedding.bin'.format(args.out_dir, args.dataset, 
                 args.model, args.loss, str(args.lr).replace('.',''), args.epochs)
 
 os.makedirs(args.out_dir, exist_ok=True)
